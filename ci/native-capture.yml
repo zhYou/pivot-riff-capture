@@ -1,0 +1,91 @@
+name: riff-native-capture
+
+# 在真实原生平台捕获 riff Flutter 测试 App（posthog_flutter 6.0.0）的
+# Capture v1 样本。仓库只是 test/fixtures/riff-flutter-app 的临时副本：
+# .github/workflows/native-capture.yml 对应本目录 ci/native-capture.yml。
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "要捕获的原生平台"
+        type: choice
+        options:
+          - both
+          - android
+          - ios
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    if: ${{ github.event.inputs.platform != 'ios' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+      - name: 启用 KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Flutter 版本证据
+        run: |
+          mkdir -p evidence
+          flutter --version --machine > evidence/flutter-version-android.json
+          flutter doctor -v > evidence/flutter-doctor-android.txt 2>&1 || true
+      - name: 捕获 Android 样本
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: bash ci/capture_android.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: riff-samples-android
+          path: |
+            samples/
+            evidence/
+          if-no-files-found: warn
+
+  ios:
+    if: ${{ github.event.inputs.platform != 'android' }}
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.1"
+          channel: stable
+          cache: true
+      - name: Flutter 版本证据
+        run: |
+          mkdir -p evidence
+          flutter --version --machine > evidence/flutter-version-ios.json
+          flutter doctor -v > evidence/flutter-doctor-ios.txt 2>&1 || true
+      - name: 捕获 iOS 样本
+        run: bash ci/capture_ios.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: riff-samples-ios
+          path: |
+            samples/
+            evidence/
+          if-no-files-found: warn
